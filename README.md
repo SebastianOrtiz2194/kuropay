@@ -4,7 +4,7 @@
 
 A digital wallet backend in Java 25 and Spring Boot 4. It creates wallets, takes deposits and moves money between wallets, and it is built around one question: what happens when many requests hit the same wallet at once, or the same request arrives twice?
 
-**Status: work in progress.** The wallet core service is working and tested. The event relay to Kafka, authentication and the fraud risk engine are not built yet (see [Not built yet](#not-built-yet)).
+**Status: work in progress.** The wallet core service is working and tested, and every endpoint requires a JWT access token. The event relay to Kafka, wallet ownership checks and the fraud risk engine are not built yet (see [Not built yet](#not-built-yet)).
 
 ## What it guarantees
 
@@ -33,14 +33,22 @@ This starts PostgreSQL and Redis from `compose.yaml`, applies the Flyway migrati
 
 ## Try it
 
+Every request needs an access token: `Authorization: Bearer <token>`. The service does not issue tokens. It trusts the issuer set in `KUROPAY_JWT_ISSUER_URI` (default `http://localhost:8081/realms/kuropay`) and validates each token against that issuer's public keys. A local identity provider is not part of `compose.yaml` yet, so until it is, the examples below need a token from an issuer you run yourself.
+
+```bash
+TOKEN=<access token from your issuer>
+```
+
 Create two wallets. Each response includes the wallet `id`.
 
 ```bash
 curl -X POST localhost:8080/api/wallets \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"ownerId": "alice", "currency": "JPY"}'
 
 curl -X POST localhost:8080/api/wallets \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"ownerId": "bob", "currency": "JPY"}'
 ```
@@ -49,6 +57,7 @@ Deposit ¥10,000 into the first wallet:
 
 ```bash
 curl -X POST localhost:8080/api/wallets/<alice-wallet-id>/deposits \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: dep-001' \
   -d '{"amount": 10000, "currency": "JPY"}'
@@ -58,6 +67,7 @@ Transfer ¥2,500 to the second:
 
 ```bash
 curl -i -X POST localhost:8080/api/transfers \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: tx-001' \
   -d '{"sourceWalletId": "<alice-wallet-id>", "targetWalletId": "<bob-wallet-id>", "amount": 2500, "currency": "JPY"}'
@@ -90,6 +100,7 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem det
 | Status | `type` ends with | When |
 |---|---|---|
 | 400 | `invalid-request` | Validation failed, or the amount has too many decimals |
+| 401 | `unauthorized` | The access token is missing, expired, signed by an unknown key or from another issuer. The reason is in the `WWW-Authenticate` header |
 | 404 | `wallet-not-found` | The wallet does not exist |
 | 409 | `wallet-already-exists` | The owner already has a wallet in that currency. The `Location` header points to it |
 | 422 | `insufficient-funds` | The source wallet cannot cover the transfer |
@@ -119,6 +130,12 @@ There are two layers, and only one of them is trusted.
 
 A rejected transfer is stored too, so retrying a transfer that failed for insufficient funds returns the same rejection even if the wallet has been funded in between. Sending the same key with a different payload returns 422.
 
+## Authentication
+
+The service is an OAuth2 resource server. It never sees a password or a signing key: it checks the signature, the issuer and the expiry of each JWT, using public keys it fetches from the issuer. It keeps no session, so any instance can serve any request.
+
+`ApiAuthenticationIntegrationTest` sends real HTTP requests with no token, an expired token, a token signed by an unknown key and a token from another issuer, and expects 401 for each.
+
 ## Architecture
 
 The service follows hexagonal architecture, and ArchUnit fails the build if a layer breaks the rules.
@@ -127,7 +144,7 @@ The service follows hexagonal architecture, and ArchUnit fails the build if a la
 com.kuropay.wallet
 ├── domain           Wallet, Money, Transfer, Deposit, events, output ports. Plain Java, no framework imports
 ├── application      Use cases: create wallet, deposit, transfer. Depends only on the domain
-└── infrastructure   Web controllers, JPA adapters, Redis cache, configuration
+└── infrastructure   Web controllers, security, JPA adapters, Redis cache, configuration
 ```
 
 - `Money` fixes the scale to its currency (0 decimals for JPY, 2 for USD and EUR), so amounts compare and hash the same everywhere.
@@ -145,10 +162,11 @@ This runs the unit tests, the web slice tests, the ArchUnit rules and the Testco
 
 ## Stack
 
-Java 25, Spring Boot 4.1, Gradle (Kotlin DSL) with a version catalog, PostgreSQL 17, Flyway, Redis 7, JUnit, Testcontainers, ArchUnit, JSpecify, GitHub Actions.
+Java 25, Spring Boot 4.1, Gradle (Kotlin DSL) with a version catalog, Spring Security (OAuth2 resource server), PostgreSQL 17, Flyway, Redis 7, JUnit, Testcontainers, ArchUnit, JSpecify, GitHub Actions.
 
 ## Not built yet
 
 - **Outbox relay to Kafka.** Events are written to `outbox_events` and stay `PENDING`; nothing publishes them yet.
-- **Authentication.** Every endpoint is open, and `ownerId` comes from the request body. It will come from the authenticated user.
+- **Wallet ownership.** A valid token is required, but any authenticated caller can still read or debit any wallet, and `ownerId` still comes from the request body. It will come from the token's subject.
+- **Local identity provider.** Nothing in `compose.yaml` issues tokens yet.
 - **Fraud risk engine.** Planned, using Spring AI.
