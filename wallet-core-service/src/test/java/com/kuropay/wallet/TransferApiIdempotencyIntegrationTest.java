@@ -6,6 +6,7 @@ import com.kuropay.wallet.domain.model.Wallet;
 import com.kuropay.wallet.domain.port.out.WalletRepositoryPort;
 import com.kuropay.wallet.infrastructure.web.TransferController.TransferRequest;
 import com.kuropay.wallet.infrastructure.web.TransferController.TransferResponse;
+import com.kuropay.wallet.support.TestJwtConfiguration;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
@@ -31,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
+@Import(TestJwtConfiguration.class)
 class TransferApiIdempotencyIntegrationTest {
 
     @Container
@@ -62,9 +65,7 @@ class TransferApiIdempotencyIntegrationTest {
         Wallet target = Wallet.createNew("user-idem-target", Currency.JPY, now);
         walletRepository.save(target);
 
-        RestClient restClient = RestClient.builder()
-                .baseUrl("http://localhost:" + port)
-                .build();
+        RestClient restClient = authenticatedClient();
 
         TransferRequest requestBody = new TransferRequest(
                 source.id(),
@@ -118,9 +119,7 @@ class TransferApiIdempotencyIntegrationTest {
         Wallet target = Wallet.createNew("user-redis-loss-target", Currency.JPY, now);
         walletRepository.save(target);
 
-        RestClient restClient = RestClient.builder()
-                .baseUrl("http://localhost:" + port)
-                .build();
+        RestClient restClient = authenticatedClient();
 
         TransferRequest requestBody = new TransferRequest(
                 source.id(),
@@ -162,9 +161,7 @@ class TransferApiIdempotencyIntegrationTest {
         Wallet target = Wallet.createNew("user-key-reuse-target", Currency.JPY, now);
         walletRepository.save(target);
 
-        RestClient restClient = RestClient.builder()
-                .baseUrl("http://localhost:" + port)
-                .build();
+        RestClient restClient = authenticatedClient();
         String idempotencyKey = "idem-key-reuse-001";
 
         postTransfer(restClient, idempotencyKey,
@@ -190,6 +187,13 @@ class TransferApiIdempotencyIntegrationTest {
         }
         assertThat(walletRepository.findById(source.id()).orElseThrow().balance())
                 .isEqualTo(Money.of(9_000L, Currency.JPY));
+    }
+
+    private RestClient authenticatedClient() {
+        return RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultHeaders(headers -> headers.setBearerAuth(TestJwtConfiguration.validToken("test-caller")))
+                .build();
     }
 
     private static ResponseEntity<ProblemDetail> postExpectingProblem(
@@ -229,9 +233,7 @@ class TransferApiIdempotencyIntegrationTest {
         Wallet target = Wallet.createNew("user-merchant", Currency.JPY, now);
         walletRepository.save(target);
 
-        RestClient restClient = RestClient.builder()
-                .baseUrl("http://localhost:" + port)
-                .build();
+        RestClient restClient = authenticatedClient();
 
         TransferRequest requestBody = new TransferRequest(
                 source.id(),

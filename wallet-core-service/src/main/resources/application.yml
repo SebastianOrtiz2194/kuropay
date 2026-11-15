@@ -10,6 +10,14 @@ spring:
       # Lettuce's default 60s command timeout would turn a Redis outage into a 60s payment latency.
       timeout: 200ms
       connect-timeout: 500ms
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Who we trust to issue access tokens. Spring discovers that issuer's public keys
+          # (JWKS) from it, lazily on the first token, and rejects any token whose `iss` claim
+          # is not exactly this value. The service holds no signing key and no shared secret.
+          issuer-uri: ${KUROPAY_JWT_ISSUER_URI:http://localhost:8081/realms/kuropay}
   jpa:
     open-in-view: false
     hibernate:

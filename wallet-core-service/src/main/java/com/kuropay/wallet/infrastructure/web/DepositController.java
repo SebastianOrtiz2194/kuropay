@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * A deposit is a sub-resource of the wallet it credits, so the wallet id travels in the path.
  *
- * <p>Open to any caller only until authentication exists (Step 6). In a real system this is not
+ * <p>Open to any authenticated caller until authorization exists. In a real system this is not
  * something an end user calls: it is triggered by a payment provider confirming that money
  * actually arrived.
  */

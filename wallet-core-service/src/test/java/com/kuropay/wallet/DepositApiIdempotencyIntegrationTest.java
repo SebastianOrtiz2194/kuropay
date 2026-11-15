@@ -8,6 +8,7 @@ import com.kuropay.wallet.infrastructure.web.DepositController.DepositRequest;
 import com.kuropay.wallet.infrastructure.web.DepositController.DepositResponse;
 import com.kuropay.wallet.infrastructure.web.TransferController.TransferRequest;
 import com.kuropay.wallet.infrastructure.web.TransferController.TransferResponse;
+import com.kuropay.wallet.support.TestJwtConfiguration;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
@@ -35,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Full stack over real HTTP: controller, Redis cache, use case and PostgreSQL together. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
+@Import(TestJwtConfiguration.class)
 class DepositApiIdempotencyIntegrationTest {
 
     @Container
@@ -60,7 +63,10 @@ class DepositApiIdempotencyIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        restClient = RestClient.builder().baseUrl("http://localhost:" + port).build();
+        restClient = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultHeaders(headers -> headers.setBearerAuth(TestJwtConfiguration.validToken("test-caller")))
+                .build();
     }
 
     @Test

@@ -7,11 +7,13 @@ import com.kuropay.wallet.domain.exception.WalletNotFoundException;
 import com.kuropay.wallet.domain.model.Currency;
 import com.kuropay.wallet.domain.model.Money;
 import com.kuropay.wallet.domain.model.Wallet;
+import com.kuropay.wallet.infrastructure.security.SecurityConfig;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -21,8 +23,10 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 @WebMvcTest(WalletController.class)
+@Import(SecurityConfig.class)
 class WalletControllerTest {
 
     private static final Instant NOW = Instant.parse("2026-11-09T09:00:00Z");
@@ -83,7 +87,7 @@ class WalletControllerTest {
     void getting_a_wallet_should_return_its_balance() {
         when(getWalletQuery.getWallet(WALLET_ID)).thenReturn(wallet(Money.of(7_500L, Currency.JPY)));
 
-        MvcTestResult result = mvc.get().uri("/api/wallets/{id}", WALLET_ID).exchange();
+        MvcTestResult result = mvc.get().uri("/api/wallets/{id}", WALLET_ID).with(jwt()).exchange();
 
         assertThat(result).hasStatus(HttpStatus.OK);
         assertThat(result).bodyJson().extractingPath("$.balance").isEqualTo(7500);
@@ -94,7 +98,7 @@ class WalletControllerTest {
     void getting_an_unknown_wallet_should_return_404_problem() {
         when(getWalletQuery.getWallet(WALLET_ID)).thenThrow(new WalletNotFoundException(WALLET_ID));
 
-        MvcTestResult result = mvc.get().uri("/api/wallets/{id}", WALLET_ID).exchange();
+        MvcTestResult result = mvc.get().uri("/api/wallets/{id}", WALLET_ID).with(jwt()).exchange();
 
         assertThat(result).hasStatus(HttpStatus.NOT_FOUND);
         assertThat(result).hasContentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
@@ -103,7 +107,7 @@ class WalletControllerTest {
 
     @Test
     void malformed_wallet_id_should_return_400_problem() {
-        MvcTestResult result = mvc.get().uri("/api/wallets/not-a-uuid").exchange();
+        MvcTestResult result = mvc.get().uri("/api/wallets/not-a-uuid").with(jwt()).exchange();
 
         assertThat(result).hasStatus(HttpStatus.BAD_REQUEST);
         assertThat(result).hasContentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
@@ -113,6 +117,7 @@ class WalletControllerTest {
         return mvc.post().uri("/api/wallets")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json)
+                .with(jwt())
                 .exchange();
     }
 

@@ -10,6 +10,7 @@ import com.kuropay.wallet.infrastructure.idempotency.RedisIdempotencyCache;
 import com.kuropay.wallet.infrastructure.idempotency.RedisIdempotencyCache.CachedResponse;
 import com.kuropay.wallet.infrastructure.idempotency.RequestFingerprint;
 import com.kuropay.wallet.infrastructure.web.DepositController.DepositResponse;
+import com.kuropay.wallet.infrastructure.security.SecurityConfig;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -29,9 +31,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 /** Web-layer slice: no database, no Redis. The use case and the cache are mocks. */
 @WebMvcTest(DepositController.class)
+@Import(SecurityConfig.class)
 class DepositControllerTest {
 
     private static final UUID WALLET_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -118,6 +122,7 @@ class DepositControllerTest {
         MvcTestResult result = mvc.post().uri("/api/wallets/{walletId}/deposits", WALLET_ID)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body("1000", "JPY"))
+                .with(jwt())
                 .exchange();
 
         assertProblem(result, HttpStatus.BAD_REQUEST);
@@ -135,6 +140,7 @@ class DepositControllerTest {
                 .header("Idempotency-Key", idempotencyKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json)
+                .with(jwt())
                 .exchange();
     }
 
