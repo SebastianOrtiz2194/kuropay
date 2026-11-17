@@ -32,5 +32,39 @@ services:
       timeout: 3s
       retries: 10
 
+  # Local identity provider. It plays the part that a managed IdP plays in production: it logs
+  # users in and signs access tokens; wallet-core-service only verifies them.
+  #
+  # `start-dev` is Keycloak's development mode (plain HTTP, embedded database). The realm in
+  # infra/keycloak is imported when the container is first created; signing keys are generated
+  # then, so they change whenever the container is recreated.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Pins the `iss` claim. Without it Keycloak derives the issuer from the URL each request
+      # came in on, so a token requested via 127.0.0.1 would not match the issuer the service
+      # trusts (http://localhost:8081/realms/kuropay) and would be rejected.
+      KC_HOSTNAME: http://localhost:8081
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      # The image ships without curl, so the check speaks HTTP over bash's /dev/tcp to the
+      # management port (9000, not published).
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000
+          && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          && grep -q '"status": "UP"' <&3
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
 volumes:
   postgres-data:
