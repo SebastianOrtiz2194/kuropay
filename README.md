@@ -29,15 +29,21 @@ You need JDK 25 and Docker.
 ./gradlew :wallet-core-service:bootRun
 ```
 
-This starts PostgreSQL and Redis from `compose.yaml`, applies the Flyway migrations and serves the API on `http://localhost:8080`.
+This starts PostgreSQL, Redis and Keycloak from `compose.yaml`, applies the Flyway migrations and serves the API on `http://localhost:8080`. Keycloak is the slowest to start: the first run downloads its image, and later runs wait about 15 seconds for it.
 
 ## Try it
 
-Every request needs an access token: `Authorization: Bearer <token>`. The service does not issue tokens. It trusts the issuer set in `KUROPAY_JWT_ISSUER_URI` (default `http://localhost:8081/realms/kuropay`) and validates each token against that issuer's public keys. A local identity provider is not part of `compose.yaml` yet, so until it is, the examples below need a token from an issuer you run yourself.
+Every request needs an access token: `Authorization: Bearer <token>`. The service does not issue tokens; the local Keycloak does. Log in as the demo user `alice` (password `alice`) and keep the token. This needs `jq`.
 
 ```bash
-TOKEN=<access token from your issuer>
+TOKEN=$(curl -s localhost:8081/realms/kuropay/protocol/openid-connect/token \
+  -d grant_type=password \
+  -d client_id=kuropay-cli \
+  -d username=alice \
+  -d password=alice | jq -r .access_token)
 ```
+
+The token expires after 5 minutes. When a request starts returning 401, run the command again. There is a second demo user, `bob` (password `bob`).
 
 Create two wallets. Each response includes the wallet `id`.
 
@@ -136,6 +142,10 @@ The service is an OAuth2 resource server. It never sees a password or a signing 
 
 `ApiAuthenticationIntegrationTest` sends real HTTP requests with no token, an expired token, a token signed by an unknown key and a token from another issuer, and expects 401 for each.
 
+The trusted issuer is set in `KUROPAY_JWT_ISSUER_URI`. It defaults to the Keycloak realm that `compose.yaml` starts, `http://localhost:8081/realms/kuropay`. That realm is defined in `infra/keycloak/kuropay-realm.json`: two demo users and one public client, `kuropay-cli`, that trades a username and password for a token. The password grant is there so that `curl` can log in. A real client would use the authorization code flow with PKCE, and the service would not change, because it only verifies tokens and does not care how they were obtained.
+
+The Keycloak admin console is at `http://localhost:8081` (`admin` / `admin`). The realm file is imported only when the container is created, so after editing it run `docker compose rm -sf keycloak` and start again.
+
 ## Architecture
 
 The service follows hexagonal architecture, and ArchUnit fails the build if a layer breaks the rules.
@@ -162,11 +172,11 @@ This runs the unit tests, the web slice tests, the ArchUnit rules and the Testco
 
 ## Stack
 
-Java 25, Spring Boot 4.1, Gradle (Kotlin DSL) with a version catalog, Spring Security (OAuth2 resource server), PostgreSQL 17, Flyway, Redis 7, JUnit, Testcontainers, ArchUnit, JSpecify, GitHub Actions.
+Java 25, Spring Boot 4.1, Gradle (Kotlin DSL) with a version catalog, Spring Security (OAuth2 resource server), Keycloak 26, PostgreSQL 17, Flyway, Redis 7, JUnit, Testcontainers, ArchUnit, JSpecify, GitHub Actions.
 
 ## Not built yet
 
 - **Outbox relay to Kafka.** Events are written to `outbox_events` and stay `PENDING`; nothing publishes them yet.
 - **Wallet ownership.** A valid token is required, but any authenticated caller can still read or debit any wallet, and `ownerId` still comes from the request body. It will come from the token's subject.
-- **Local identity provider.** Nothing in `compose.yaml` issues tokens yet.
+- **Audience check.** The service accepts any unexpired token signed by the trusted issuer, including one issued for a different service.
 - **Fraud risk engine.** Planned, using Spring AI.
