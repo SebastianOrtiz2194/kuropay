@@ -106,7 +106,7 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem det
 | Status | `type` ends with | When |
 |---|---|---|
 | 400 | `invalid-request` | Validation failed, or the amount has too many decimals |
-| 401 | `unauthorized` | The access token is missing, expired, signed by an unknown key or from another issuer. The reason is in the `WWW-Authenticate` header |
+| 401 | `unauthorized` | The access token is missing, expired, signed by an unknown key, from another issuer or issued for another service. The reason is in the `WWW-Authenticate` header |
 | 404 | `wallet-not-found` | The wallet does not exist |
 | 409 | `wallet-already-exists` | The owner already has a wallet in that currency. The `Location` header points to it |
 | 422 | `insufficient-funds` | The source wallet cannot cover the transfer |
@@ -138,9 +138,11 @@ A rejected transfer is stored too, so retrying a transfer that failed for insuff
 
 ## Authentication
 
-The service is an OAuth2 resource server. It never sees a password or a signing key: it checks the signature, the issuer and the expiry of each JWT, using public keys it fetches from the issuer. It keeps no session, so any instance can serve any request.
+The service is an OAuth2 resource server. It never sees a password or a signing key: it checks the signature, the issuer, the expiry and the audience of each JWT, using public keys it fetches from the issuer. It keeps no session, so any instance can serve any request.
 
-`ApiAuthenticationIntegrationTest` sends real HTTP requests with no token, an expired token, a token signed by an unknown key and a token from another issuer, and expects 401 for each.
+The audience check matters because one identity provider signs tokens for many APIs. The signature and issuer only prove that the token is genuine; the `aud` claim says which API it was issued for. The service accepts a token only if `aud` contains `wallet-core-service`, so a token issued for another service cannot be replayed here. In Keycloak this claim comes from an audience mapper on the `kuropay-cli` client: Keycloak does not add it by default.
+
+`ApiAuthenticationIntegrationTest` sends real HTTP requests with no token, an expired token, a token signed by an unknown key, a token from another issuer and a token issued for another service, and expects 401 for each. Each of these tokens is valid except for the one thing being tested, so the test proves that check, not some other one.
 
 The trusted issuer is set in `KUROPAY_JWT_ISSUER_URI`. It defaults to the Keycloak realm that `compose.yaml` starts, `http://localhost:8081/realms/kuropay`. That realm is defined in `infra/keycloak/kuropay-realm.json`: two demo users and one public client, `kuropay-cli`, that trades a username and password for a token. The password grant is there so that `curl` can log in. A real client would use the authorization code flow with PKCE, and the service would not change, because it only verifies tokens and does not care how they were obtained.
 
@@ -178,5 +180,4 @@ Java 25, Spring Boot 4.1, Gradle (Kotlin DSL) with a version catalog, Spring Sec
 
 - **Outbox relay to Kafka.** Events are written to `outbox_events` and stay `PENDING`; nothing publishes them yet.
 - **Wallet ownership.** A valid token is required, but any authenticated caller can still read or debit any wallet, and `ownerId` still comes from the request body. It will come from the token's subject.
-- **Audience check.** The service accepts any unexpired token signed by the trusted issuer, including one issued for a different service.
 - **Fraud risk engine.** Planned, using Spring AI.
