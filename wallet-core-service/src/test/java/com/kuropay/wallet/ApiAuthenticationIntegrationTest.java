@@ -86,6 +86,16 @@ class ApiAuthenticationIntegrationTest {
     }
 
     @Test
+    void token_issued_for_another_service_should_return_401_even_if_issuer_and_signature_are_valid() {
+        ResponseEntity<ProblemDetail> response =
+                getWallet(TestJwtConfiguration.tokenForAnotherAudience("alice"));
+
+        assertUnauthorizedProblem(response);
+        // Proves it was rejected for its audience, not for some other flaw in the test token.
+        assertThat(response.getHeaders().getFirst(HttpHeaders.WWW_AUTHENTICATE)).contains("aud");
+    }
+
+    @Test
     void valid_token_should_get_past_authentication_and_reach_the_controller() {
         ResponseEntity<ProblemDetail> response = getWallet(TestJwtConfiguration.validToken("alice"));
 

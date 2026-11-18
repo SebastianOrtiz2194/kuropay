@@ -18,6 +18,11 @@ spring:
           # (JWKS) from it, lazily on the first token, and rejects any token whose `iss` claim
           # is not exactly this value. The service holds no signing key and no shared secret.
           issuer-uri: ${KUROPAY_JWT_ISSUER_URI:http://localhost:8081/realms/kuropay}
+          # Who the token is for. One issuer signs tokens for many APIs; without this check a
+          # token minted for any of them would work here too. The token's `aud` claim must
+          # contain this value. It names this API, so unlike the issuer it does not vary by
+          # environment.
+          audiences: wallet-core-service
   jpa:
     open-in-view: false
     hibernate:
