@@ -33,37 +33,42 @@ This starts PostgreSQL, Redis and Keycloak from `compose.yaml`, applies the Flyw
 
 ## Try it
 
-Every request needs an access token: `Authorization: Bearer <token>`. The service does not issue tokens; the local Keycloak does. Log in as the demo user `alice` (password `alice`) and keep the token. This needs `jq`.
+Every request needs an access token: `Authorization: Bearer <token>`. The service does not issue tokens; the local Keycloak does. Log in as the two demo users, `alice` and `bob` (each password is the same as the username), and keep their tokens. This needs `jq`.
 
 ```bash
-TOKEN=$(curl -s localhost:8081/realms/kuropay/protocol/openid-connect/token \
-  -d grant_type=password \
-  -d client_id=kuropay-cli \
-  -d username=alice \
-  -d password=alice | jq -r .access_token)
+token() {
+  curl -s localhost:8081/realms/kuropay/protocol/openid-connect/token \
+    -d grant_type=password \
+    -d client_id=kuropay-cli \
+    -d username="$1" \
+    -d password="$1" | jq -r .access_token
+}
+
+ALICE=$(token alice)
+BOB=$(token bob)
 ```
 
-The token expires after 5 minutes. When a request starts returning 401, run the command again. There is a second demo user, `bob` (password `bob`).
+The tokens expire after 5 minutes. When a request starts returning 401, run the last two commands again.
 
-Create two wallets. Each response includes the wallet `id`.
+A wallet belongs to the user whose token creates it, so each user creates their own. Each response includes the wallet `id`.
 
 ```bash
 curl -X POST localhost:8080/api/wallets \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $ALICE" \
   -H 'Content-Type: application/json' \
-  -d '{"ownerId": "alice", "currency": "JPY"}'
+  -d '{"currency": "JPY"}'
 
 curl -X POST localhost:8080/api/wallets \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $BOB" \
   -H 'Content-Type: application/json' \
-  -d '{"ownerId": "bob", "currency": "JPY"}'
+  -d '{"currency": "JPY"}'
 ```
 
 Deposit ¥10,000 into the first wallet:
 
 ```bash
 curl -X POST localhost:8080/api/wallets/<alice-wallet-id>/deposits \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $ALICE" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: dep-001' \
   -d '{"amount": 10000, "currency": "JPY"}'
@@ -73,7 +78,7 @@ Transfer ¥2,500 to the second:
 
 ```bash
 curl -i -X POST localhost:8080/api/transfers \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $ALICE" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: tx-001' \
   -d '{"sourceWalletId": "<alice-wallet-id>", "targetWalletId": "<bob-wallet-id>", "amount": 2500, "currency": "JPY"}'
@@ -92,7 +97,7 @@ Run the same transfer again. The body is identical, the header is now `X-Idempot
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/wallets` | Create a wallet for an owner and a currency |
+| `POST` | `/api/wallets` | Create a wallet in a currency. Its owner is the token's subject (`sub`) |
 | `GET` | `/api/wallets/{walletId}` | Read a wallet and its balance |
 | `POST` | `/api/wallets/{walletId}/deposits` | Credit a wallet. Requires `Idempotency-Key` |
 | `POST` | `/api/transfers` | Move money between two wallets. Requires `Idempotency-Key` |
@@ -179,5 +184,5 @@ Java 25, Spring Boot 4.1, Gradle (Kotlin DSL) with a version catalog, Spring Sec
 ## Not built yet
 
 - **Outbox relay to Kafka.** Events are written to `outbox_events` and stay `PENDING`; nothing publishes them yet.
-- **Wallet ownership.** A valid token is required, but any authenticated caller can still read or debit any wallet, and `ownerId` still comes from the request body. It will come from the token's subject.
+- **Wallet ownership checks.** A new wallet belongs to the token's subject, but any authenticated caller can still read or debit any wallet.
 - **Fraud risk engine.** Planned, using Spring AI.
