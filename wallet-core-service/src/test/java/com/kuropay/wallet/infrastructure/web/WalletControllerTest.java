@@ -1,6 +1,7 @@
 package com.kuropay.wallet.infrastructure.web;
 
 import com.kuropay.wallet.application.port.in.CreateWalletUseCase;
+import com.kuropay.wallet.application.port.in.CreateWalletUseCase.CreateWalletCommand;
 import com.kuropay.wallet.application.port.in.CreateWalletUseCase.CreateWalletResult;
 import com.kuropay.wallet.application.port.in.GetWalletQuery;
 import com.kuropay.wallet.domain.exception.WalletNotFoundException;
@@ -22,6 +23,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
@@ -46,8 +49,8 @@ class WalletControllerTest {
         when(createWalletUseCase.createWallet(any()))
                 .thenReturn(new CreateWalletResult.Created(wallet(Money.zero(Currency.JPY))));
 
-        MvcTestResult result = postWallet("""
-                {"ownerId": "alice", "currency": "JPY"}
+        MvcTestResult result = postWalletAs("alice", """
+                {"currency": "JPY"}
                 """);
 
         assertThat(result).hasStatus(HttpStatus.CREATED);
@@ -55,6 +58,20 @@ class WalletControllerTest {
         assertThat(result).bodyJson().extractingPath("$.id").isEqualTo(WALLET_ID.toString());
         assertThat(result).bodyJson().extractingPath("$.balance").isEqualTo(0);
         assertThat(result).bodyJson().extractingPath("$.currency").isEqualTo("JPY");
+        verify(createWalletUseCase).createWallet(new CreateWalletCommand("alice", Currency.JPY));
+    }
+
+    @Test
+    void owner_should_be_the_token_subject_even_if_the_body_names_someone_else() {
+        when(createWalletUseCase.createWallet(any()))
+                .thenReturn(new CreateWalletResult.Created(wallet(Money.zero(Currency.JPY))));
+
+        MvcTestResult result = postWalletAs("alice", """
+                {"ownerId": "mallory", "currency": "JPY"}
+                """);
+
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        verify(createWalletUseCase).createWallet(new CreateWalletCommand("alice", Currency.JPY));
     }
 
     @Test
@@ -62,8 +79,8 @@ class WalletControllerTest {
         when(createWalletUseCase.createWallet(any()))
                 .thenReturn(new CreateWalletResult.AlreadyExists(wallet(Money.of(500L, Currency.JPY))));
 
-        MvcTestResult result = postWallet("""
-                {"ownerId": "alice", "currency": "JPY"}
+        MvcTestResult result = postWalletAs("alice", """
+                {"currency": "JPY"}
                 """);
 
         assertThat(result).hasStatus(HttpStatus.CONFLICT);
@@ -74,13 +91,12 @@ class WalletControllerTest {
     }
 
     @Test
-    void blank_owner_should_return_400_problem_listing_the_field() {
-        MvcTestResult result = postWallet("""
-                {"ownerId": " ", "currency": "JPY"}
-                """);
+    void missing_currency_should_return_400_problem_listing_the_field() {
+        MvcTestResult result = postWalletAs("alice", "{}");
 
         assertThat(result).hasStatus(HttpStatus.BAD_REQUEST);
-        assertThat(result).bodyJson().extractingPath("$.errors[0].field").isEqualTo("ownerId");
+        assertThat(result).bodyJson().extractingPath("$.errors[0].field").isEqualTo("currency");
+        verifyNoInteractions(createWalletUseCase);
     }
 
     @Test
@@ -113,11 +129,11 @@ class WalletControllerTest {
         assertThat(result).hasContentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
     }
 
-    private MvcTestResult postWallet(String json) {
+    private MvcTestResult postWalletAs(String subject, String json) {
         return mvc.post().uri("/api/wallets")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json)
-                .with(jwt())
+                .with(jwt().jwt(token -> token.subject(subject)))
                 .exchange();
     }
 

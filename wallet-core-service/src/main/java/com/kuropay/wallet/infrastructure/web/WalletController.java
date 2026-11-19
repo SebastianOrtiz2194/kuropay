@@ -7,9 +7,7 @@ import com.kuropay.wallet.application.port.in.GetWalletQuery;
 import com.kuropay.wallet.domain.model.Currency;
 import com.kuropay.wallet.domain.model.Wallet;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Instant;
@@ -17,6 +15,8 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,10 +37,20 @@ public class WalletController {
         this.getWalletQuery = getWalletQuery;
     }
 
+    /**
+     * The owner is whoever the access token was issued to, never something the client chooses:
+     * otherwise any authenticated user could open wallets in someone else's name.
+     *
+     * <p>{@code sub} and not {@code preferred_username} or {@code email}: the subject is unique
+     * within the issuer and never reassigned, while usernames and emails can change hands.
+     */
     @PostMapping(version = "1.0")
-    public ResponseEntity<?> createWallet(@Valid @RequestBody CreateWalletRequest request) {
+    public ResponseEntity<?> createWallet(
+            @AuthenticationPrincipal Jwt token,
+            @Valid @RequestBody CreateWalletRequest request
+    ) {
         CreateWalletResult result = createWalletUseCase.createWallet(
-                new CreateWalletCommand(request.ownerId(), request.currency())
+                new CreateWalletCommand(token.getSubject(), request.currency())
         );
 
         return switch (result) {
@@ -78,13 +88,10 @@ public class WalletController {
     }
 
     /**
-     * ownerId comes from the body only until authentication exists (Step 6): then it will be the
-     * authenticated user, never something the client can choose.
+     * Deliberately has no ownerId: the request DTO is an allowlist, so an ownerId sent in the
+     * body has nowhere to bind and is dropped (no mass assignment).
      */
-    public record CreateWalletRequest(
-            @NotBlank @Size(max = CreateWalletUseCase.MAX_OWNER_ID_LENGTH) String ownerId,
-            @NotNull Currency currency
-    ) {
+    public record CreateWalletRequest(@NotNull Currency currency) {
     }
 
     public record WalletResponse(

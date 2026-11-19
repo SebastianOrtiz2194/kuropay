@@ -107,22 +107,24 @@ class ApiAuthenticationIntegrationTest {
 
     @Test
     void unauthenticated_write_should_be_rejected_before_it_touches_the_database() {
-        String owner = "unauthenticated-" + UUID.randomUUID();
+        Integer walletsBefore = countWallets();
 
         ResponseEntity<ProblemDetail> response = restClient.post()
                 .uri("/api/wallets")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("""
-                        {"ownerId": "%s", "currency": "JPY"}
-                        """.formatted(owner))
+                        {"currency": "JPY"}
+                        """)
                 .retrieve()
                 .onStatus(status -> true, (req, res) -> {})
                 .toEntity(ProblemDetail.class);
 
         assertUnauthorizedProblem(response);
-        Integer wallets = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM wallets WHERE owner_id = ?", Integer.class, owner);
-        assertThat(wallets).isZero();
+        assertThat(countWallets()).isEqualTo(walletsBefore);
+    }
+
+    private @Nullable Integer countWallets() {
+        return jdbcTemplate.queryForObject("SELECT count(*) FROM wallets", Integer.class);
     }
 
     private ResponseEntity<ProblemDetail> getWallet(@Nullable String bearerToken) {
